@@ -12,18 +12,16 @@
 
 <p align="center">
   <a href="README.zh-CN.md">简体中文</a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/nearai/ironclaw">Ironclaw</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nearai/ironclaw"><img src="https://img.shields.io/badge/Ironclaw-Project-8B5CF6?style=flat&logo=github" alt="Ironclaw"></a>
   &nbsp;·&nbsp;
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-1.70%2B-orange?logo=rust" alt="Rust"></a>
-  &nbsp;·&nbsp;
-  <a href="https://crates.io/crates/ironclaw-cursor-brain"><img src="https://img.shields.io/crates/v/ironclaw-cursor-brain" alt="crates.io"></a>
   &nbsp;·&nbsp;
   <a href="https://crates.io/crates/ironclaw-cursor-brain"><img src="https://img.shields.io/crates/d/ironclaw-cursor-brain" alt="downloads"></a>
   &nbsp;·&nbsp;
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform">
-  &nbsp;·&nbsp;
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
 </p>
 
 ---
@@ -37,12 +35,26 @@
 - **Zero config by default** — Optional `~/.ironclaw/cursor-brain.json`; env vars override
 - **Cross-platform** — Windows, macOS, Linux (Rust + cursor-agent)
 
-**Behavior vs OpenAiCompletions:** The plugin sends the **full conversation** to cursor-agent as a single synthesized prompt (System / User / Assistant / Tool result blocks). cursor-agent only accepts one prompt (stdin); `tools` / `tool_choice` are accepted in the request but not sent to the agent. See [doc/ironclaw-provider-contract.md](doc/ironclaw-provider-contract.md) for details.
+**Behavior vs OpenAiCompletions:** The plugin sends the **full conversation** to cursor-agent as a single synthesized prompt (System / User / Assistant / Tool result blocks). cursor-agent only accepts one prompt (stdin); `tools` / `tool_choice` are accepted in the request but not sent to the agent. See the [Guide](#documentation) for details.
+
+---
+
+### 📖 Documentation — Start here
+
+New to the project? The **Guide** walks you through architecture, configuration, API, and Ironclaw integration in one place.
+
+| Language    | Document                                                                                                                                                        |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **English** | [**Guide (EN)**](doc/TECHNICAL.md) — Introduction, quick start, core concepts, request lifecycle, configuration, sessions, API reference, Ironclaw integration. |
+| **中文**    | [**使用指南（中文）**](doc/TECHNICAL.zh-CN.md) — 简介、快速开始、核心概念、请求生命周期、配置、会话、API 参考、Ironclaw 集成。                                  |
+| —           | [Provider definition](doc/provider-definition.json) — JSON to merge into `~/.ironclaw/providers.json`.                                                          |
+
+---
 
 ## Table of contents
 
 - [Quick start](#quick-start)
-- [Documentation](#documentation)
+- [Documentation](#documentation--start-here)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Run & validate](#run--validate)
@@ -53,9 +65,7 @@
 
 ## Documentation
 
-- **[Architecture](doc/ARCHITECTURE.md)** — Component overview, request flow, module roles (with Mermaid diagrams).
-- **[Ironclaw provider contract](doc/ironclaw-provider-contract.md)** — How Ironclaw calls the plugin; request/response contract.
-- **[Provider definition](doc/provider-definition.json)** — JSON entry for `~/.ironclaw/providers.json`.
+The **[Guide (EN)](doc/TECHNICAL.md)** and **[使用指南（中文）](doc/TECHNICAL.zh-CN.md)** are the main technical docs: tutorial-style, from introduction through configuration, sessions, API, and Ironclaw integration. For the provider JSON only: [provider-definition.json](doc/provider-definition.json).
 
 ## Quick start
 
@@ -218,6 +228,6 @@ The mapping is persisted to `~/.ironclaw/cursor-brain-sessions.json` (temp file 
 
 - **License:** [LICENSE](LICENSE) (MIT).
 - **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
-- **Architecture:** [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
+- **Technical reference:** [doc/TECHNICAL.md](doc/TECHNICAL.md).
 - Implementation reference: [openclaw-cursor-brain](https://github.com/openclaw/openclaw-cursor-brain) (cursor-agent wrapping, stream-json).
 - Integration with Ironclaw is via the provider registry only; no OpenClaw concepts.
