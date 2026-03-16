@@ -66,7 +66,7 @@ fn completion_error_to_http(e: CompletionError) -> (axum::http::StatusCode, Json
         ),
         CompletionError::NoContent => err_response(
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            "cursor-agent returned no content. Please try again later.",
+            "cursor-agent returned no content. Check plugin/server logs for cursor-agent stderr; consider increasing request_timeout_sec in cursor-brain.json.",
             Some("no_response"),
         ),
         CompletionError::SpawnFailed(io) => err_response(
@@ -86,8 +86,14 @@ async fn chat_completions(
     headers: HeaderMap,
     Json(body): Json<ChatCompletionRequest>,
 ) -> Result<axum::response::Response, (axum::http::StatusCode, Json<ErrorBody>)> {
-    let input = CompletionInput::from_request(&body, &headers, &state.config.session_header_name)
-        .map_err(completion_error_to_http)?;
+    let default_model = state.config.default_model.as_deref().unwrap_or("auto");
+    let input = CompletionInput::from_request(
+        &body,
+        &headers,
+        &state.config.session_header_name,
+        default_model,
+    )
+    .map_err(completion_error_to_http)?;
 
     if input.stream {
         let (id, model_owned, mut rx) = state
@@ -133,13 +139,49 @@ async fn chat_completions(
         .unwrap())
 }
 
-/// GET /v1/models — minimal list compatible with OpenAiCompletions.
-async fn list_models() -> Json<serde_json::Value> {
+/// GET /v1/models — list from cursor-agent --list-models; fallback to default when agent unavailable or timeout.
+async fn list_models(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let config = state.config.clone();
+    const LIST_MODELS_TIMEOUT_SECS: u64 = 15;
+    let ids: Vec<String> = match config.resolve_cursor_path() {
+        Some(cursor_path) => {
+            let list = tokio::time::timeout(
+                std::time::Duration::from_secs(LIST_MODELS_TIMEOUT_SECS),
+                tokio::task::spawn_blocking(move || {
+                    crate::cursor::list_models_via_agent(&cursor_path)
+                }),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or_default();
+            if list.is_empty() {
+                crate::config::DEFAULT_MODELS_LIST
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect()
+            } else {
+                list
+            }
+        }
+        None => crate::config::DEFAULT_MODELS_LIST
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+    };
+    let data: Vec<serde_json::Value> = ids
+        .iter()
+        .map(|id| {
+            serde_json::json!({
+                "id": id,
+                "object": "model",
+                "created": 0
+            })
+        })
+        .collect();
     Json(serde_json::json!({
         "object": "list",
-        "data": [
-            { "id": "cursor-default", "object": "model", "created": 0 }
-        ]
+        "data": data
     }))
 }
 

@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::cursor::{run_to_completion, run_to_completion_stream, spawn_cursor_agent, StreamDelta};
-use crate::openai::{extract_user_message, ChatCompletionRequest};
+use crate::openai::{extract_user_message, format_messages_as_prompt, ChatCompletionRequest};
 use crate::session::SessionStore;
 use axum::http::HeaderMap;
 use std::sync::Arc;
@@ -22,18 +22,29 @@ pub struct CompletionInput {
 
 impl CompletionInput {
     /// Build from OpenAI request body and headers; returns None if no user message (caller maps to InvalidRequest).
+    /// When request omits `model`, use `default_model` (e.g. from config or "auto").
     pub fn from_request(
         body: &ChatCompletionRequest,
         headers: &HeaderMap,
         session_header_name: &str,
+        default_model: &str,
     ) -> Result<Self, CompletionError> {
-        let user_msg = extract_user_message(&body.messages);
-        if user_msg.is_empty() {
+        let user_msg = if body.messages.len() > 1 {
+            format_messages_as_prompt(&body.messages)
+        } else {
+            extract_user_message(&body.messages)
+        };
+        if user_msg.trim().is_empty() {
             return Err(CompletionError::InvalidRequest(
                 "no user message in messages",
             ));
         }
-        let model = body.model.as_deref().unwrap_or("default").to_string();
+        let model = body
+            .model
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(default_model)
+            .to_string();
         let stream = body.stream.unwrap_or(false);
         let external_session_id = headers
             .get(session_header_name)
@@ -105,13 +116,18 @@ impl CompletionService {
 
         let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().to_simple());
         let mut resume = resume_session_id;
+        let mut no_content_retried = false;
+        let mut fallback_retried = false;
+        let mut current_model = input.model.clone();
+        let fallback_model = self.config.fallback_model.clone();
+
         let out = loop {
             let resume_this = resume.clone();
             let external_session_this = input.external_session_id.clone();
             let session_tx_this = session_tx.clone();
             let cursor_path_this = cursor_path.clone();
             let user_msg_this = input.user_msg.clone();
-            let model_this = input.model.clone();
+            let model_this = current_model.clone();
             let timeout = self.timeout;
 
             let result = tokio::task::spawn_blocking(move || {
@@ -143,14 +159,32 @@ impl CompletionService {
                 resume = None;
                 continue;
             }
-
+            if empty && !no_content_retried {
+                no_content_retried = true;
+                tracing::info!("cursor-agent returned no content; retrying once without resume");
+                continue;
+            }
+            if empty
+                && !fallback_retried
+                && fallback_model
+                    .as_deref()
+                    .is_some_and(|fb| fb != current_model)
+            {
+                fallback_retried = true;
+                current_model = fallback_model.clone().unwrap_or_default();
+                tracing::info!(
+                    "cursor-agent returned no content; retrying once with fallback_model {}",
+                    current_model
+                );
+                continue;
+            }
             if empty {
                 return Err(CompletionError::NoContent);
             }
             break out;
         };
 
-        Ok((out, input.model, id))
+        Ok((out, current_model, id))
     }
 
     /// Run stream completion; returns (id, model, receiver) so handler can build SSE body.

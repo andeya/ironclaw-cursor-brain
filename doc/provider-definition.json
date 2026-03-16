@@ -1,0 +1,21 @@
+{
+  "id": "cursor",
+  "aliases": [
+    "cursor_brain",
+    "cursor-brain"
+  ],
+  "protocol": "open_ai_completions",
+  "default_base_url": "http://127.0.0.1:3001/v1",
+  "base_url_env": "CURSOR_BRAIN_BASE_URL",
+  "base_url_required": false,
+  "api_key_required": false,
+  "model_env": "CURSOR_BRAIN_MODEL",
+  "default_model": "auto",
+  "description": "Cursor Agent via ironclaw-cursor-brain (local OpenAI-compatible proxy)",
+  "setup": {
+    "kind": "open_ai_compatible",
+    "secret_name": "llm_cursor_brain_api_key",
+    "display_name": "Cursor Brain",
+    "can_list_models": true
+  }
+}

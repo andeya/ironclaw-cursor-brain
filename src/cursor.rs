@@ -43,7 +43,20 @@ pub fn spawn_cursor_agent(
         "--approve-mcps".into(),
         "--force".into(),
     ];
-    if let Some(m) = model {
+    // cursor-agent rejects "cursor" / "cursor-default" / "default"; it only accepts "auto" or concrete model ids (e.g. composer-1.5).
+    let model_for_agent = model.map(|m| {
+        let m = m.trim();
+        if m.is_empty()
+            || m.eq_ignore_ascii_case("cursor")
+            || m.eq_ignore_ascii_case("cursor-default")
+            || m.eq_ignore_ascii_case("default")
+        {
+            "auto"
+        } else {
+            m
+        }
+    });
+    if let Some(m) = model_for_agent {
         if !m.is_empty() && m != "auto" {
             args.push("--model".into());
             args.push(m.to_string());
@@ -90,6 +103,89 @@ pub fn spawn_cursor_agent(
         let _ = stdin.flush();
     }
     Ok(child)
+}
+
+/// List available models by running cursor-agent with `--list-models`.
+/// Returns model ids; on failure returns empty vec (caller should use default list).
+pub fn list_models_via_agent(cursor_path: &str) -> Vec<String> {
+    #[cfg(windows)]
+    let needs_shell = cursor_path.to_lowercase().ends_with(".cmd")
+        || cursor_path.to_lowercase().ends_with(".bat");
+    #[cfg(not(windows))]
+    let needs_shell = false;
+
+    let output = if needs_shell {
+        #[cfg(windows)]
+        {
+            let cmd_str = format!("\"{}\" --list-models", cursor_path);
+            std::process::Command::new("cmd")
+                .args(["/C", &cmd_str])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+        }
+        #[cfg(not(windows))]
+        {
+            unreachable!()
+        }
+    } else {
+        std::process::Command::new(cursor_path)
+            .arg("--list-models")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+    };
+
+    let out = match output {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => return Vec::new(),
+    };
+
+    parse_list_models_output(&out)
+}
+
+/// Parse stdout of `agent --list-models`: JSON array of strings, or one id per line.
+fn parse_list_models_output(out: &str) -> Vec<String> {
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    // Try JSON array of strings first.
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(arr) = v.as_array() {
+            let ids: Vec<String> = arr
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !ids.is_empty() {
+                return ids;
+            }
+        }
+    }
+    // Otherwise one model id per line (or table rows); take non-empty trimmed lines that look like ids.
+    let ids: Vec<String> = trimmed
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('|') && !l.starts_with('-'))
+        .filter_map(|l| {
+            let s = l.split_whitespace().next().unwrap_or(l).to_string();
+            if s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_')
+            {
+                Some(s)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if ids.is_empty() {
+        Vec::new()
+    } else {
+        ids
+    }
 }
 
 /// Parse one line of stream-json; returns None if not valid JSON or not an event we care about.
@@ -141,6 +237,7 @@ pub fn parse_stream_json_line(line: &str) -> Option<CursorEvent> {
 /// Run cursor-agent to completion (non-stream): collect stdout, parse, merge result/text into content.
 /// Returns when child exits or timeout. On timeout, kills child.
 /// If `on_session_id` is provided, it is called when a session_id event is seen (for session mapping).
+/// When output is empty, stderr is read and logged to help diagnose 503 no_response.
 pub fn run_to_completion(
     child: &mut Child,
     timeout: Duration,
@@ -150,6 +247,13 @@ pub fn run_to_completion(
         .stdout
         .take()
         .ok_or_else(|| std::io::Error::other("no stdout"))?;
+    let stderr_handle = child.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = std::io::Read::read_to_string(&mut stderr, &mut s);
+            s
+        })
+    });
     let reader = BufReader::new(stdout);
     let mut out = CompletionOutput {
         finish_reason: "stop".into(),
@@ -182,6 +286,24 @@ pub fn run_to_completion(
             }
         }
     }
+
+    if out.content.is_empty() && out.thinking_text.is_empty() {
+        let stderr = stderr_handle
+            .and_then(|h| h.join().ok())
+            .unwrap_or_default();
+        let stderr = stderr.trim();
+        if !stderr.is_empty() {
+            tracing::warn!(
+                cursor_agent_stderr = %stderr,
+                "cursor-agent returned no content; check stderr for errors"
+            );
+        } else {
+            tracing::warn!(
+                "cursor-agent returned no content (no stderr output). Try increasing request_timeout_sec or running agent manually."
+            );
+        }
+    }
+
     Ok(out)
 }
 

@@ -4,8 +4,8 @@ mod config;
 mod cursor;
 mod openai;
 mod server;
-mod session;
 mod service;
+mod session;
 
 use std::net::SocketAddr;
 use std::sync::Arc;

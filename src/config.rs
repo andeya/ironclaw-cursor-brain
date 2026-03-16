@@ -18,6 +18,9 @@ pub fn home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Default model ids returned by GET /v1/models when cursor-agent --list-models fails or is unavailable.
+pub const DEFAULT_MODELS_LIST: &[&str] = &["auto", "cursor-default"];
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Path to cursor-agent executable; empty means detect from PATH or fixed paths.
@@ -30,6 +33,10 @@ pub struct Config {
     pub session_cache_max: u32,
     /// Header name for external session id (e.g. X-Session-Id).
     pub session_header_name: String,
+    /// When request omits model, use this if set; else "auto".
+    pub default_model: Option<String>,
+    /// When primary model returns no content, retry once with this model if set.
+    pub fallback_model: Option<String>,
 }
 
 /// Default session persistence file path under the Ironclaw config directory (not configurable).
@@ -62,6 +69,8 @@ pub fn load_config() -> Config {
     let mut request_timeout_sec = DEFAULT_REQUEST_TIMEOUT_SEC;
     let mut session_cache_max = DEFAULT_SESSION_CACHE_MAX;
     let mut session_header_name = DEFAULT_SESSION_HEADER_NAME.to_string();
+    let mut default_model: Option<String> = None;
+    let mut fallback_model: Option<String> = None;
 
     // Optional file: ~/.ironclaw/cursor-brain.json
     let home = home_dir();
@@ -87,6 +96,16 @@ pub fn load_config() -> Config {
                 if let Some(s) = v.get("session_header_name").and_then(|s| s.as_str()) {
                     if !s.is_empty() {
                         session_header_name = s.to_string();
+                    }
+                }
+                if let Some(m) = v.get("default_model").and_then(|m| m.as_str()) {
+                    if !m.is_empty() {
+                        default_model = Some(m.to_string());
+                    }
+                }
+                if let Some(m) = v.get("fallback_model").and_then(|m| m.as_str()) {
+                    if !m.is_empty() {
+                        fallback_model = Some(m.to_string());
                     }
                 }
             }
@@ -119,6 +138,16 @@ pub fn load_config() -> Config {
             session_header_name = s;
         }
     }
+    if let Ok(m) = std::env::var("CURSOR_BRAIN_DEFAULT_MODEL") {
+        if !m.is_empty() {
+            default_model = Some(m);
+        }
+    }
+    if let Ok(m) = std::env::var("CURSOR_BRAIN_FALLBACK_MODEL") {
+        if !m.is_empty() {
+            fallback_model = Some(m);
+        }
+    }
 
     Config {
         cursor_path,
@@ -126,6 +155,8 @@ pub fn load_config() -> Config {
         request_timeout_sec,
         session_cache_max,
         session_header_name,
+        default_model,
+        fallback_model,
     }
 }
 

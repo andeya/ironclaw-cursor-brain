@@ -12,6 +12,7 @@ pub struct ChatMessage {
 
 /// Request body for POST /v1/chat/completions.
 /// temperature/max_tokens accepted for API compatibility; cursor-agent uses its own defaults.
+/// tools/tool_choice are accepted but not forwarded (cursor-agent has no API for them); full messages are synthesized into one prompt (see format_messages_as_prompt).
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct ChatCompletionRequest {
@@ -22,35 +23,64 @@ pub struct ChatCompletionRequest {
     pub temperature: Option<f32>,
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Tool definitions (Ironclaw sends these for complete_with_tools); not forwarded to cursor-agent.
+    #[serde(default)]
+    pub tools: Option<serde_json::Value>,
+    /// Tool choice mode; not forwarded to cursor-agent.
+    #[serde(default)]
+    pub tool_choice: Option<serde_json::Value>,
 }
 
-/// Extract the last user message as plain text (for cursor-agent stdin).
-/// content can be string or array of { type: "text", text: "..." }.
+/// Turn one message's content into a single string (string or array of text parts).
+fn message_content_to_string(content: &Option<serde_json::Value>) -> String {
+    match content {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|c| {
+                let obj = c.as_object()?;
+                if obj.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    obj.get("text").and_then(|t| t.as_str()).map(String::from)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+/// Extract the last user message as plain text (for backward compatibility).
 pub fn extract_user_message(messages: &[ChatMessage]) -> String {
     for m in messages.iter().rev() {
-        if m.role != "user" {
-            continue;
-        }
-        match &m.content {
-            Some(serde_json::Value::String(s)) => return s.clone(),
-            Some(serde_json::Value::Array(arr)) => {
-                let parts: Vec<String> = arr
-                    .iter()
-                    .filter_map(|c| {
-                        let obj = c.as_object()?;
-                        if obj.get("type").and_then(|t| t.as_str()) == Some("text") {
-                            obj.get("text").and_then(|t| t.as_str()).map(String::from)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                return parts.join("\n");
-            }
-            _ => continue,
+        if m.role.eq_ignore_ascii_case("user") {
+            return message_content_to_string(&m.content);
         }
     }
     String::new()
+}
+
+/// Format full OpenAI messages as a single prompt for cursor-agent stdin.
+/// cursor-agent only accepts one prompt; this preserves full conversation and tool context as text.
+pub fn format_messages_as_prompt(messages: &[ChatMessage]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for m in messages.iter() {
+        let content = message_content_to_string(&m.content);
+        if content.is_empty() {
+            continue;
+        }
+        let role = m.role.to_lowercase();
+        let block = match role.as_str() {
+            "system" => format!("System:\n{}", content),
+            "user" => format!("User:\n{}", content),
+            "assistant" => format!("Assistant:\n{}", content),
+            "tool" => format!("Tool result:\n{}", content),
+            _ => format!("{}:\n{}", m.role, content),
+        };
+        out.push(block);
+    }
+    out.join("\n\n---\n\n")
 }
 
 /// Non-stream response: single JSON object.
