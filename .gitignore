@@ -1,3 +1,21 @@
+# Rust / Cargo
 /target
+**/*.rs.bk
+
+# Local / IDE
 .cursor
 /openspec
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (optional: uncomment if you keep secrets in .env)
+# .env
+# .env.*
