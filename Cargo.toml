@@ -4,6 +4,10 @@ version = "0.2.0"
 edition = "2021"
 authors = ["andeya <andeyalee@outlook.com>"]
 license = "MIT"
+description = "Use Cursor as an OpenAI-compatible LLM backend for Ironclaw."
+repository = "https://github.com/andeya/ironclaw-cursor-brain"
+documentation = "https://github.com/andeya/ironclaw-cursor-brain/blob/main/doc/TECHNICAL.md"
+homepage = "https://github.com/andeya/ironclaw-cursor-brain"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
